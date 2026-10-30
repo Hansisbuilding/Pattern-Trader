@@ -1,0 +1,155 @@
+# ---------------------------------------------------------------------------
+# Pattern Trader configuration.
+# Every rule that keeps the bot disciplined lives here, so you can read and
+# tune it without touching code. Times are US/Eastern.
+# ---------------------------------------------------------------------------
+
+data:
+  live_feed: iex          # free Alpaca plan: real-time data is IEX only
+  backtest_feed: sip      # free plan allows full SIP history older than 15 min
+  cache_dir: .cache
+
+session:
+  open: "09:30"
+  rvol_minutes: 5          # opening window used to measure relative volume
+  no_entry_before: "09:35"
+  no_entry_after: "15:00"
+  flatten_at: "15:50"      # every position is closed before the bell, no overnight holds
+
+# --- Risk: the part that keeps you in the game -------------------------------
+risk:
+  risk_per_trade_pct: 0.5      # % of equity lost if the stop is hit
+  max_position_pct: 20         # max % of equity in any single position
+  max_daily_loss_pct: 2.0      # hit this and the bot flattens and stops for the day
+  max_trades_per_day: 4
+  max_open_positions: 2
+  max_consecutive_losses: 2    # two losers in a row = done for the day
+  no_reentry_after_loss: true  # no revenge trading a symbol that just stopped you out
+  min_reward_risk: 2.0         # default; strategies may override (never below 1.0)
+  min_stop_pct: 0.15           # stops tighter than this % of price are noise
+  max_spread_pct: 0.15         # skip entries if bid/ask spread is wider than this
+  allow_short: false           # start long-only; flip once shorts prove out in backtests
+
+# --- Market regime (SPY) -----------------------------------------------------
+regime:
+  market_symbol: SPY
+  adx_trend_min: 20            # ADX >= this with aligned MAs = trending
+  chaos_atr_pctile: 0.95       # SPY volatility in its top 5% of the last year = sit out
+  chaos_gap_pct: 1.5           # SPY gapping more than this = sit out
+
+# --- Scanner: which stocks are "in play" -------------------------------------
+scan:
+  exchanges: [NYSE, NASDAQ, AMEX]   # ARCA/BATS are mostly ETFs; we want single stocks
+  include_top_liquid: 40            # also analyze the most liquid non-gappers (trend/range plays)
+  min_price: 5
+  max_price: 500
+  min_avg_dollar_volume: 20000000   # $20M/day; illiquid names = bad fills
+  min_abs_gap_pct: 1.5              # coarse filter for the full-market scan
+  coarse_limit: 80                  # names that get the full analysis
+  max_watchlist: 5                  # focus beats breadth
+  min_score: 55                     # below this a setup isn't worth your attention
+  news_lookback_hours: 18
+
+watchlist:
+  require_approval: true    # trader only trades symbols you approved for the day
+
+# --- Edge gate: a strategy must prove itself in backtests before it trades -----
+edge_gate:
+  enabled: true
+  stats_file: results/strategy_stats.json
+  min_trades: 30
+  min_expectancy_r: 0.05
+  min_profit_factor: 1.1
+  require_both_halves: true   # edge must be positive in each half of the test period
+
+# --- Backtest ----------------------------------------------------------------
+backtest:
+  starting_equity: 100000
+  slippage_bps: 3            # applied against you on market entries and stops
+  universe_file: universe/liquid_us.txt
+  use_news: true
+
+# --- Strategies --------------------------------------------------------------
+# market_regimes / stock_regimes: the situations a strategy is ALLOWED to trade.
+# Regimes: trend_up, trend_down, range, mixed (transitioning), chaos (market only).
+strategies:
+  orb:
+    enabled: true
+    priority: 2
+    market_regimes: [trend_up, trend_down, range]
+    stock_regimes: [trend_up, trend_down, range, mixed]
+    min_rvol: 2.0
+    min_abs_gap_pct: 1.0
+    range_minutes: 15
+    breakout_volume_mult: 1.5
+    max_stop_atr: 0.5          # stop distance as a fraction of daily ATR
+    window: ["09:45", "11:00"]
+
+  gap_and_go:
+    enabled: true
+    priority: 1
+    market_regimes: [trend_up, trend_down, range]
+    stock_regimes: [trend_up, trend_down, range, mixed]
+    min_rvol: 3.0
+    min_abs_gap_pct: 4.0
+    require_catalyst: true
+    breakout_volume_mult: 1.5
+    stop_lookback: 5
+    max_stop_atr: 0.5
+    window: ["09:35", "10:30"]
+
+  vwap_pullback:
+    enabled: true
+    priority: 3
+    market_regimes: [trend_up, trend_down]
+    stock_regimes: [trend_up, trend_down]   # with the trend only
+    min_rvol: 1.5
+    above_vwap_frac: 0.75
+    touch_tolerance_pct: 0.10
+    max_pierce_pct: 0.25
+    max_stop_atr: 0.4
+    window: ["09:45", "14:30"]
+
+  bull_flag:
+    enabled: true
+    priority: 4
+    market_regimes: [trend_up, trend_down, range]
+    stock_regimes: [trend_up, trend_down, range, mixed]
+    min_rvol: 2.0
+    pole_min_atr: 0.4          # pole height as a fraction of daily ATR
+    max_pole_bars: 15
+    min_flag_bars: 3
+    max_flag_bars: 12
+    max_retrace: 0.5
+    max_stop_atr: 0.4
+    window: ["09:45", "14:00"]
+
+  mean_reversion:
+    enabled: true
+    priority: 6
+    market_regimes: [range]
+    stock_regimes: [range]       # never fade a trending stock
+    max_abs_gap_pct: 2.0
+    max_rvol: 2.5
+    require_no_catalyst: true
+    bb_period: 12                # on 5-minute bars
+    bb_std: 2.0
+    rsi_period: 7
+    rsi_low: 25
+    rsi_high: 75
+    min_rr: 1.2                  # target is the band midline; wins more often, pays less
+    max_stop_atr: 0.4
+    window: ["10:30", "15:00"]
+
+  gap_fade:
+    enabled: true
+    priority: 5
+    market_regimes: [range]
+    stock_regimes: [range, mixed]
+    min_abs_gap_pct: 3.0
+    require_no_catalyst: true    # gaps with real news tend to keep going
+    range_minutes: 15
+    fill_fraction: 0.75          # target = 75% of the gap filled
+    min_rr: 1.5
+    max_stop_atr: 0.6
+    window: ["09:45", "11:30"]
