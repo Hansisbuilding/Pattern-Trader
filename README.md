@@ -103,7 +103,8 @@ Honest-testing tips:
 
 - `tests` workflow: runs the test suite on every push.
 - `trading day` workflow: runs the whole paper-trading day on GitHub, no machine of your own needed.
-  The morning job scans at ~08:50 ET and trades from the open; at 12:00 ET it hands off to the
+  The morning job starts between 06:00 and 09:40 ET (GitHub timers run late, so it is triggered every
+  30 minutes and runs once a day), scans at ~08:50 and trades from the open; at 11:30 ET it hands off to the
   afternoon job (GitHub caps a job at 6 hours), which keeps trading and flattens at 15:50. Picks are
   auto-approved (`watchlist.require_approval: false`). After the close the journal and watchlists are
   committed to the `trading-log` branch.

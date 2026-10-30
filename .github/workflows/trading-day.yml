@@ -1,6 +1,6 @@
 # Runs a full paper-trading day on GitHub, no Mac needed:
-#   morning job   ~08:15 ET  scan the market, trade from the open, hand off at 12:00 ET
-#   afternoon job  12:00 ET  pick up open positions, keep trading, flatten at 15:50 ET
+#   morning job   ~06:00-09:40 ET  wait, scan at 08:50, trade from the open, hand off at 11:30 ET
+#   afternoon job  11:30 ET        pick up open positions, keep trading, flatten at 15:50 ET
 # GitHub caps a job at 6 hours, hence the hand-off. Bracket orders sit at Alpaca, so open
 # positions keep their stops and targets during the minute between jobs.
 #
@@ -10,10 +10,10 @@ name: trading day
 
 on:
   schedule:
-    # Cron runs in UTC. Two triggers cover summer (EDT) and winter (EST) time; the gate step
-    # keeps whichever lands in the 07:45-09:25 ET window. GitHub often starts these 5-30 min late.
-    - cron: "15 12 * * 1-5"
-    - cron: "15 13 * * 1-5"
+    # Cron runs in UTC, and GitHub starts scheduled runs late (up to 2 hours on 2026-10-30) or
+    # skips them. So it fires every 30 minutes from 06:00 ET (summer time); the first run inside
+    # the 06:00-09:40 ET window trades the day and later ones queue behind it, then exit at the gate.
+    - cron: "0,30 10-13 * * 1-5"
   workflow_dispatch:
     inputs:
       dry_run:
@@ -49,7 +49,9 @@ jobs:
           now=$(date +%H%M)
           if [ "${{ vars.BOT_PAUSED }}" = "true" ]; then
             echo "Bot is paused (BOT_PAUSED=true)." | tee -a "$GITHUB_STEP_SUMMARY"; echo "go=false" >> "$GITHUB_OUTPUT"
-          elif [ "${{ github.event_name }}" = "workflow_dispatch" ] || { [ "$now" -ge 0745 ] && [ "$now" -le 0925 ]; }; then
+          elif [ -n "$(git ls-remote https://github.com/${{ github.repository }} refs/tags/traded-$(date +%F))" ]; then
+            echo "Today's trading day already ran." | tee -a "$GITHUB_STEP_SUMMARY"; echo "go=false" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ] || { [ "$now" -ge 0600 ] && [ "$now" -le 0940 ]; }; then
             echo "go=true" >> "$GITHUB_OUTPUT"
           else
             echo "Outside the pre-market window ($now ET): the other trigger handles today." | tee -a "$GITHUB_STEP_SUMMARY"
@@ -88,7 +90,9 @@ jobs:
 
       - name: Trade the morning
         if: steps.gate.outputs.go == 'true'
-        run: python -m patterntrader trade --stop-at 12:00 $TRADE_FLAGS
+        run: |
+          git tag "traded-$(date +%F)" && git push -q origin "traded-$(date +%F)" || true   # later triggers today skip
+          python -m patterntrader trade --stop-at 11:30 $TRADE_FLAGS
 
       - if: always() && steps.gate.outputs.go == 'true'
         uses: actions/upload-artifact@v4
