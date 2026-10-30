@@ -18,17 +18,63 @@ session:
 
 # --- Risk: the part that keeps you in the game -------------------------------
 risk:
-  risk_per_trade_pct: 0.5      # % of equity lost if the stop is hit
-  max_position_pct: 20         # max % of equity in any single position
+  risk_per_trade_pct: 0.5      # % of equity lost if the stop is hit; this sets position size
+  # Tight intraday stops mean the position needed to risk 0.5% can exceed account equity,
+  # so these caps allow modest intraday leverage (Alpaca gives up to 4x day-trading buying power).
+  max_position_pct: 150        # max size of one position, % of equity
+  max_gross_exposure_pct: 250  # max total of all open positions, % of equity
+  max_adv_pct: 1.0             # never more than 1% of the stock's average daily dollar volume
   max_daily_loss_pct: 2.0      # hit this and the bot flattens and stops for the day
   max_trades_per_day: 4
   max_open_positions: 2
   max_consecutive_losses: 2    # two losers in a row = done for the day
   no_reentry_after_loss: true  # no revenge trading a symbol that just stopped you out
   min_reward_risk: 2.0         # default; strategies may override (never below 1.0)
-  min_stop_pct: 0.15           # stops tighter than this % of price are noise
+  min_stop_pct: 0.5            # stops tighter than this % of price are noise (2016-21: they lost)
   max_spread_pct: 0.15         # skip entries if bid/ask spread is wider than this
   allow_short: false           # start long-only; flip once shorts prove out in backtests
+  long_in_down_market: false   # research only: allow buying when SPY is in a downtrend
+
+# --- In play: the situation every momentum playbook needs ---------------------
+# 2016-21 signal research: breakouts on quiet stocks lost money in every market regime;
+# the same patterns on stocks gapping up with news made money in every regime.
+in_play:
+  min_gap_pct: 1.5             # gapped up at least this much at the open
+  require_catalyst: true       # with news in the last 18 hours
+
+# --- Sentiment: acts on trades when enabled ----------------------------------
+# Every decision it changes is logged to journal/sentiment_decisions.csv. Compare with the
+# baseline any time: `patterntrader backtest ... --no-sentiment`.
+sentiment:
+  # OFF (2026-10-29): in full backtests it lowered returns in both periods (2016-21 +220% -> +162%,
+  # 2021-26 +19% -> +12%); version B only traded return for a smaller drawdown. Still collected,
+  # shown on the watchlist and logged, so the monthly check can keep testing it.
+  enabled: false
+  # Set from 10 years of setups (2026-10-29): only signals that pointed the same way in BOTH
+  # 2016-21 and 2021-26 get a weight. News tone, analyst actions, mood and panic sizing flipped
+  # between the periods (blocking bad-tone headlines would have cost money in 2021-26), so they
+  # are recorded but carry no weight.
+  # Market layer (checked before the open): how much to risk today.
+  sit_out_vix_term_above: null     # VIX / 3-month VIX; panic days were NOT worse for these setups
+  half_size_below_mood: null       # 0-100 fear/greed: inconsistent, unused
+  half_size_events: [jobs, opex, quad witching]   # weaker in both periods
+  # Stock layer (checked at the scan and again at the open).
+  block_news_tone_below: null      # would have hurt in 2021-26
+  block_offering: false            # too rare to judge (34 and 22 setups)
+  min_quality: null
+  half_size_below_quality: 51      # setups with no squeeze fuel, insider buying or earnings: half size
+  rank_weight: 0.5                 # watchlist score += (quality - 50) x this
+  quality:                         # points added to a neutral 50
+    squeeze_short_pct: 5           # short interest >= 5% of shares (2016-21 +0.80R vs +0.29R; 2021-26 +0.11R vs -0.06R)
+    squeeze: 10
+    short_volume: 5                # over half of recent volume sold short
+    insider_buy: 5                 # insider open-market buying in the last 30 days
+    earnings: 3                    # earnings 8-K before the open
+    news_tone: 0                   # flipped between periods
+    eps_surprise: 0                # only 2% of setups have it so far (Alpha Vantage backfill)
+    analyst: 0                     # helped 2016-21, nothing 2021-26
+    attention: 0                   # Wikipedia spikes: flipped
+    offering: 0
 
 # --- Market regime (SPY) -----------------------------------------------------
 regime:
@@ -36,6 +82,7 @@ regime:
   adx_trend_min: 20            # ADX >= this with aligned MAs = trending
   chaos_atr_pctile: 0.95       # SPY volatility in its top 5% of the last year = sit out
   chaos_gap_pct: 1.5           # SPY gapping more than this = sit out
+  trade_chaos: false           # research only: let strategies listing 'chaos' trade those days
 
 # --- Scanner: which stocks are "in play" -------------------------------------
 scan:
@@ -47,7 +94,7 @@ scan:
   min_abs_gap_pct: 1.5              # coarse filter for the full-market scan
   coarse_limit: 80                  # names that get the full analysis
   max_watchlist: 5                  # focus beats breadth
-  min_score: 55                     # below this a setup isn't worth your attention
+  min_score: 40                     # below this a setup isn't worth your attention
   news_lookback_hours: 18
 
 watchlist:
@@ -72,60 +119,66 @@ backtest:
 # --- Strategies --------------------------------------------------------------
 # market_regimes / stock_regimes: the situations a strategy is ALLOWED to trade.
 # Regimes: trend_up, trend_down, range, mixed (transitioning), chaos (market only).
+# Playbook (2026-10-29): each pattern trades only the market types where it made money in BOTH
+# 2016-21 and 2021-26. Downtrend and chaos days are sat out (trading them lost in 2021-26).
 strategies:
   orb:
-    enabled: true
+    enabled: false             # playbook 2026-10-29: no market type where it held up in both 2016-21 and 2021-26
     priority: 2
-    market_regimes: [trend_up, trend_down, range]
-    stock_regimes: [trend_up, trend_down, range, mixed]
-    min_rvol: 2.0
+    in_play: true
+    market_regimes: [trend_up, range, mixed]
+    stock_regimes: [trend_up, range, mixed]   # never buy a stock in a daily downtrend
     min_abs_gap_pct: 1.0
     range_minutes: 15
     breakout_volume_mult: 1.5
-    max_stop_atr: 0.5          # stop distance as a fraction of daily ATR
+    max_stop_atr: 1.0          # stop distance as a fraction of daily ATR
+    target_r: 10               # effectively no target: ride it to the 15:50 flatten or the stop
     window: ["09:45", "11:00"]
 
   gap_and_go:
     enabled: true
     priority: 1
-    market_regimes: [trend_up, trend_down, range]
-    stock_regimes: [trend_up, trend_down, range, mixed]
-    min_rvol: 3.0
-    min_abs_gap_pct: 4.0
+    in_play: true
+    market_regimes: [range]    # playbook: +0.35R / +0.18R in sideways markets; faded in trend_up, lost in mixed
+    stock_regimes: [trend_up, range, mixed]
+    min_abs_gap_pct: 2.0
     require_catalyst: true
     breakout_volume_mult: 1.5
     stop_lookback: 5
-    max_stop_atr: 0.5
+    max_stop_atr: 1.0
+    target_r: 10               # 2016-21: holding to the close beat a 2R target (+0.34R vs +0.21R)
     window: ["09:35", "10:30"]
 
   vwap_pullback:
     enabled: true
     priority: 3
-    market_regimes: [trend_up, trend_down]
-    stock_regimes: [trend_up, trend_down]   # with the trend only
-    min_rvol: 1.5
+    in_play: true
+    market_regimes: [trend_up] # playbook: +1.49R / +0.31R in up-trends; flipped to -0.60R in ranges
+    stock_regimes: [trend_up]     # with the trend only
     above_vwap_frac: 0.75
     touch_tolerance_pct: 0.10
     max_pierce_pct: 0.25
-    max_stop_atr: 0.4
+    max_stop_atr: 1.0
+    target_r: 10
     window: ["09:45", "14:30"]
 
   bull_flag:
     enabled: true
     priority: 4
-    market_regimes: [trend_up, trend_down, range]
-    stock_regimes: [trend_up, trend_down, range, mixed]
-    min_rvol: 2.0
+    in_play: true
+    market_regimes: [trend_up, mixed]  # playbook: positive in both periods; flipped to -0.18R in ranges
+    stock_regimes: [trend_up, range, mixed]
     pole_min_atr: 0.4          # pole height as a fraction of daily ATR
     max_pole_bars: 15
     min_flag_bars: 3
     max_flag_bars: 12
     max_retrace: 0.5
-    max_stop_atr: 0.4
+    max_stop_atr: 1.0
+    target_r: 10
     window: ["09:45", "14:00"]
 
   mean_reversion:
-    enabled: true
+    enabled: false               # 2016-26: lost in every regime and filter tried
     priority: 6
     market_regimes: [range]
     stock_regimes: [range]       # never fade a trending stock
@@ -142,7 +195,7 @@ strategies:
     window: ["10:30", "15:00"]
 
   gap_fade:
-    enabled: true
+    enabled: false               # too rare to judge; lost 2016-21
     priority: 5
     market_regimes: [range]
     stock_regimes: [range, mixed]

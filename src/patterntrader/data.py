@@ -47,12 +47,14 @@ class MarketData:
         self.client = StockHistoricalDataClient(api_key, secret_key)
         self.news_client = NewsClient(api_key, secret_key)
         self.cache = ROOT / cache_dir
+        self._mem: dict[Path, pd.DataFrame] = {}
 
     # -- raw fetch -----------------------------------------------------------
     def fetch_bars(
-        self, symbols: list[str], minutes: int | None, start: datetime, end: datetime, feed: str
+        self, symbols: list[str], minutes: int | None, start: datetime, end: datetime, feed: str,
+        strict: bool = False,
     ) -> dict[str, pd.DataFrame]:
-        """minutes=None means daily bars."""
+        """minutes=None means daily bars. strict=True raises instead of skipping a failed batch."""
         from alpaca.data.enums import Adjustment, DataFeed
         from alpaca.data.requests import StockBarsRequest
         from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
@@ -69,8 +71,13 @@ class MarketData:
                 adjustment=Adjustment.SPLIT,
             )
             try:
-                df = self.client.get_stock_bars(req).df
+                df = self._with_retry(lambda: self.client.get_stock_bars(req).df)
             except Exception as exc:  # one bad symbol shouldn't kill a whole scan
+                if strict:
+                    raise RuntimeError(
+                        f"Alpaca bar request failed ({str(exc).strip()[:120]}). Check the API keys; "
+                        "a missing-data backtest would be meaningless, so stopping."
+                    ) from exc
                 log.warning("bar fetch failed for %d symbols: %s", len(batch), exc)
                 continue
             if df.empty:
@@ -80,6 +87,21 @@ class MarketData:
                 g.index = pd.DatetimeIndex(g.index).tz_convert(ET)
                 out[str(sym)] = g
         return out
+
+    @staticmethod
+    def _with_retry(call, tries: int = 6):
+        """Alpaca allows ~200 requests a minute; when busy, wait and try again instead of failing."""
+        import time as _time
+
+        for n in range(tries):
+            try:
+                return call()
+            except Exception as exc:
+                if "too many requests" not in str(exc).lower() or n == tries - 1:
+                    raise
+                wait = 15 * (n + 1)
+                log.info("Alpaca rate limit hit; waiting %ds", wait)
+                _time.sleep(wait)
 
     # -- cached history ------------------------------------------------------
     def _cached(self, kind, symbols, periods, minutes, feed) -> dict[str, pd.DataFrame]:
@@ -92,7 +114,11 @@ class MarketData:
             for s in symbols:
                 f = folder / f"{s}.parquet"
                 if complete and f.exists():
-                    parts[s].append(pd.read_parquet(f))
+                    if f not in self._mem:  # multi-year backtests re-read the same months daily
+                        if len(self._mem) > 400:
+                            self._mem.clear()
+                        self._mem[f] = pd.read_parquet(f)
+                    parts[s].append(self._mem[f])
                 else:
                     missing.append(s)
             if not missing:
@@ -100,7 +126,7 @@ class MarketData:
             end = p_end
             if feed == "sip":  # free plan: SIP data must be >15 min old
                 end = min(end, now - timedelta(minutes=16))
-            fetched = self.fetch_bars(missing, minutes, p_start, end, feed)
+            fetched = self.fetch_bars(missing, minutes, p_start, end, feed, strict=True)
             if complete:
                 folder.mkdir(parents=True, exist_ok=True)
             for s in missing:
@@ -189,9 +215,9 @@ class MarketData:
         if cache_file.exists():
             return json.loads(cache_file.read_text())
         try:
-            res = self.news_client.get_news(
+            res = self._with_retry(lambda: self.news_client.get_news(
                 NewsRequest(symbols=symbol, start=start, end=end, limit=50, exclude_contentless=False)
-            )
+            ))
             items = res.data.get("news", []) if hasattr(res, "data") else []
             heads = [n.headline for n in items]
         except Exception as exc:

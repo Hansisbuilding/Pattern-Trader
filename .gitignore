@@ -5,7 +5,10 @@ __pycache__/
 *.egg-info/
 .pytest_cache/
 .cache/
-results/
+results/*
+!results/strategy_stats.json
 journal/
 watchlists/
 .DS_Store
+*.log
+data/

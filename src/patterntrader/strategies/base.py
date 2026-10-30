@@ -50,6 +50,10 @@ class Strategy:
                 return False, f"RVOL {ctx.rvol:.1f} < {p['min_rvol']}"
             if ctx.rvol > p.get("max_rvol", float("inf")):
                 return False, f"RVOL {ctx.rvol:.1f} > {p['max_rvol']} (too much momentum to fade)"
+        if p.get("in_play"):
+            ok, why = self.in_play(ctx)
+            if not ok:
+                return False, why
         if not any(self.side_allowed(ctx, side) for side in self.sides(ctx)):
             return False, "no allowed direction (no longs in a down market; shorts off or not shortable)"
         ok, why = self.extra_check(ctx)
@@ -59,18 +63,52 @@ class Strategy:
             notes.append(why)
         return True, "; ".join(notes)
 
+    def in_play(self, ctx: SetupContext) -> tuple[bool, str]:
+        """Momentum only pays on stocks with a reason to move: a gap with news behind it.
+
+        2016-21 research: the same breakout patterns lost money on quiet stocks and made money
+        on gappers with a catalyst, in every market regime. Longs need a gap up; shorts (when
+        enabled) the mirror image, a gap down with news.
+        """
+        rule = self.cfg.in_play
+        if not (self._gap_fits(ctx, "long") or self._gap_fits(ctx, "short")):
+            return False, f"not in play: gap {ctx.gap_pct:+.1f}% (needs {rule.min_gap_pct}% with news)"
+        if rule.require_catalyst:
+            if ctx.has_catalyst is None:
+                return False, "not in play: news not checked"
+            if not ctx.has_catalyst:
+                return False, "not in play: no news behind the gap"
+        return True, ""
+
     def extra_check(self, ctx: SetupContext) -> tuple[bool, str]:
         return True, ""
 
     def sides(self, ctx: SetupContext) -> list[str]:
         return ["long", "short"]
 
+    def _gap_fits(self, ctx: SetupContext, side: str) -> bool:
+        gap = self.cfg.in_play.min_gap_pct
+        if side == "long":
+            return ctx.gap_pct >= gap
+        return self.shorts_on(ctx) and ctx.gap_pct <= -gap
+
+    def shorts_on(self, ctx: SetupContext) -> bool:
+        r = self.cfg.risk
+        return bool(r.allow_short and ctx.shortable
+                    and ctx.market_regime in r.get("short_market_regimes", ["trend_down", "range", "mixed"]))
+
     def side_allowed(self, ctx: SetupContext, side: str) -> bool:
         if side not in self.sides(ctx):
             return False
+        in_play = self.p.get("in_play")
         if side == "long":
-            return ctx.market_regime != "trend_down"  # don't buy against a falling market
-        return bool(self.cfg.risk.allow_short and ctx.shortable and ctx.market_regime != "trend_up")
+            if in_play and (not self._gap_fits(ctx, "long") or ctx.stock_regime == "trend_down"):
+                return False  # only buy gap-ups, never a stock in a daily downtrend
+            # don't buy against a falling market (research can switch this off to measure it)
+            return ctx.market_regime != "trend_down" or self.cfg.risk.get("long_in_down_market", False)
+        if in_play and (not self._gap_fits(ctx, "short") or ctx.stock_regime == "trend_up"):
+            return False  # only short gap-downs, never a stock in a daily uptrend
+        return self.shorts_on(ctx) and ctx.market_regime != "trend_up"
 
     def in_window(self, ts: pd.Timestamp) -> bool:
         return self.window[0] <= ts.time() <= self.window[1]
@@ -96,4 +134,5 @@ class Strategy:
         return sig
 
     def target_for(self, entry: float, stop: float) -> float:
-        return entry + self.min_rr * (entry - stop)
+        """target_r sets the target distance in R; a large value lets the winner run to the close."""
+        return entry + self.p.get("target_r", self.min_rr) * (entry - stop)

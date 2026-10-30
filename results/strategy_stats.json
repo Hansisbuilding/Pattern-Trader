@@ -1,0 +1,75 @@
+{
+  "period": [
+    "2016-10-28",
+    "2026-10-27"
+  ],
+  "halves": [
+    [
+      "2016-10-28",
+      "2021-10-27"
+    ],
+    [
+      "2021-10-28",
+      "2026-10-27"
+    ]
+  ],
+  "source_runs": [
+    "results/backtest_2016-10-28_2021-10-27_playbook_A",
+    "results/backtest_2021-10-28_2026-10-27_playbook_B"
+  ],
+  "generated_at": "2026-10-29T22:07:53-04:00",
+  "starting_equity": 1000000.0,
+  "strategies": {
+    "bull_flag": {
+      "trades": 407,
+      "win_rate": 0.295,
+      "expectancy_r": 0.195,
+      "avg_win_r": 3.089,
+      "avg_loss_r": -1.015,
+      "profit_factor": 1.291,
+      "total_pnl": 491625.1,
+      "portfolio_pct": 49.163,
+      "avg_trade_pct": 0.168,
+      "avg_win_trade_pct": 3.04,
+      "avg_loss_trade_pct": -1.033,
+      "best_trade_pct": 13.085,
+      "worst_trade_pct": -4.086,
+      "expectancy_r_first_half": 0.369,
+      "expectancy_r_second_half": 0.109
+    },
+    "gap_and_go": {
+      "trades": 380,
+      "win_rate": 0.374,
+      "expectancy_r": 0.242,
+      "avg_win_r": 2.295,
+      "avg_loss_r": -0.983,
+      "profit_factor": 1.363,
+      "total_pnl": 519089.22,
+      "portfolio_pct": 51.909,
+      "avg_trade_pct": 0.347,
+      "avg_win_trade_pct": 3.22,
+      "avg_loss_trade_pct": -1.367,
+      "best_trade_pct": 20.068,
+      "worst_trade_pct": -6.036,
+      "expectancy_r_first_half": 0.303,
+      "expectancy_r_second_half": 0.201
+    },
+    "vwap_pullback": {
+      "trades": 135,
+      "win_rate": 0.215,
+      "expectancy_r": 0.367,
+      "avg_win_r": 5.488,
+      "avg_loss_r": -1.034,
+      "profit_factor": 1.339,
+      "total_pnl": 211370.3,
+      "portfolio_pct": 21.137,
+      "avg_trade_pct": 0.088,
+      "avg_win_trade_pct": 3.298,
+      "avg_loss_trade_pct": -0.79,
+      "best_trade_pct": 7.408,
+      "worst_trade_pct": -2.13,
+      "expectancy_r_first_half": 0.923,
+      "expectancy_r_second_half": 0.209
+    }
+  }
+}

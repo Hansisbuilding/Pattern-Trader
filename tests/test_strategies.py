@@ -98,8 +98,21 @@ def test_gap_fade_long(cfg):
 def test_shorts_disabled_by_default(cfg):
     closes = [100.05, 100.95] * 8 + [100.5, 100.4, 100.6, 100.3, 99.5]
     vols = [1000] * (len(closes) - 1) + [5000]
-    ctx = make_ctx(market_regime="range", shortable=True)
+    ctx = make_ctx(market_regime="range", stock_regime="range", gap_pct=-3.0, shortable=True)
     assert strat(cfg, "orb").signal(ctx, make_bars(closes, vols)) is None
     cfg.risk["allow_short"] = True
     s = strat(cfg, "orb").signal(ctx, make_bars(closes, vols))
     assert s and s.side == "short" and s.stop > s.entry > s.target
+    cfg.risk["short_market_regimes"] = ["trend_down"]  # shorts limited to falling markets
+    assert strat(cfg, "orb").signal(ctx, make_bars(closes, vols)) is None
+
+
+def test_shorts_need_a_gap_down_with_news(cfg):
+    cfg.risk["allow_short"] = True
+    o = strat(cfg, "orb")
+    down = make_ctx(market_regime="trend_down", stock_regime="trend_down", gap_pct=-3.0, shortable=True)
+    assert o.side_allowed(down, "short") and not o.side_allowed(down, "long")
+    up_stock = make_ctx(market_regime="trend_down", stock_regime="trend_up", gap_pct=-3.0, shortable=True)
+    assert not o.side_allowed(up_stock, "short")  # never short a stock in a daily uptrend
+    small = make_ctx(market_regime="trend_down", stock_regime="trend_down", gap_pct=-0.5, shortable=True)
+    assert not o.side_allowed(small, "short")

@@ -10,9 +10,20 @@ from patterntrader.models import SetupContext
 DAY = date(2026, 3, 2)
 
 
+@pytest.fixture(autouse=True)
+def offline(monkeypatch):
+    """Tests never call the SEC, Cboe, Fed or BLS."""
+    from patterntrader import backtest
+
+    monkeypatch.setattr(backtest, "outside_data", lambda cfg: None)
+
+
 @pytest.fixture
 def cfg():
-    return load_config()
+    c = load_config()
+    for params in c.strategies.values():  # test every playbook, whatever config.yaml switches off
+        params["enabled"] = True
+    return c
 
 
 def make_bars(closes, volumes=None, start="09:30", day=DAY, wick=0.05, first_open=None, vwap=None):

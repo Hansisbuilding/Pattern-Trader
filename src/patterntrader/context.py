@@ -81,7 +81,7 @@ def build_context(
         market_regime=market_regime,
         rvol=opening_rvol(today_open_volume, past_open_volumes or []),
         has_catalyst=None if headlines is None else bool(headlines),
-        headlines=(headlines or [])[:5],
+        headlines=(headlines or [])[:20],
         shortable=shortable,
     )
     if today_premarket is not None and len(today_premarket):
@@ -90,10 +90,43 @@ def build_context(
     return ctx
 
 
+def add_outside_data(ctx: SetupContext, ext, lookback_hours: float) -> SetupContext:
+    """SEC filings, VIX and the macro calendar (patterntrader.external). Informational for now."""
+    from patterntrader.external import catalyst_window
+
+    try:
+        ctx.filings = ext.catalysts(ctx.symbol, *catalyst_window(ctx.day, lookback_hours))
+    except Exception as exc:  # the SEC being down must never stop a scan
+        ctx.notes.append(f"SEC filings unavailable ({str(exc)[:60]})")
+    try:
+        v = ext.vix_context(ctx.day)
+        ctx.vix, ctx.vix_ratio = v["vix"], v["vix_ratio"]
+        ctx.info.update({k: v[k] for k in ("vix_term", "vix_9d_ratio", "skew") if k in v})
+        ctx.events = ext.events_on(ctx.day)
+    except Exception as exc:
+        ctx.notes.append(f"VIX/calendar unavailable ({str(exc)[:60]})")
+    sources = {
+        "short interest": lambda: ext.short_context(ctx.symbol, ctx.day),
+        "short volume": lambda: {"short_volume_5d": ext.short_volume_ratio(ctx.symbol, ctx.day)},
+        "insiders": lambda: ext.insider_context(ctx.symbol, ctx.day),
+        "rates": lambda: ext.rates_context(ctx.day),
+        "news tone": lambda: ext.news_sentiment(ctx.headlines),
+        "Wikipedia attention": lambda: ext.attention().wiki_attention(ctx.symbol, ctx.day, ext.filings_max_age),
+        # Alpha Vantage's free tier allows 25 calls a day: only look up stocks that just reported.
+        "EPS surprise": lambda: {"eps_surprise_pct": ext.earnings_surprise(ctx.symbol, ctx.day, fetch="earnings" in ctx.filings)},
+    }
+    for name, fn in sources.items():
+        try:
+            ctx.info.update(fn())
+        except Exception as exc:
+            ctx.notes.append(f"{name} unavailable ({str(exc)[:60]})")
+    return ctx
+
+
 def evaluate(ctx: SetupContext, strategies: list, cfg, edge=None) -> SetupContext:
     """Fill in which strategies are allowed for this situation, and a 0-100 score."""
     ctx.eligible, ctx.rejected = [], {}
-    if ctx.market_regime == "chaos":
+    if ctx.market_regime == "chaos" and not cfg.regime.get("trade_chaos", False):
         ctx.rejected = {s.name: "market regime is chaos: sit out" for s in strategies}
         ctx.score = 0.0
         return ctx
@@ -108,6 +141,10 @@ def evaluate(ctx: SetupContext, strategies: list, cfg, edge=None) -> SetupContex
         else:
             ctx.rejected[strat.name] = why
     ctx.score = score(ctx, {s.name: s for s in strategies})
+    if "sentiment" in cfg:
+        from patterntrader.sentiment import apply_to_setup
+
+        apply_to_setup(ctx, cfg)
     return ctx
 
 

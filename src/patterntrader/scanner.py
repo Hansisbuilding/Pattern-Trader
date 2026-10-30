@@ -8,7 +8,7 @@ from datetime import date, datetime, time, timedelta
 import pandas as pd
 
 from patterntrader.config import ET
-from patterntrader.context import build_context, evaluate
+from patterntrader.context import add_outside_data, build_context, evaluate
 from patterntrader.models import SetupContext
 from patterntrader.regime import market_regime
 
@@ -116,6 +116,32 @@ def analyze(cfg, md, rows: list[dict], now: datetime, strategies, edge) -> tuple
         past_vols = md.opening_volumes(symbols, past_days, rv_min, feed)
         today_vols = {s: v[day] for s, v in md.opening_volumes(symbols, [day], rv_min, feed).items() if day in v}
 
+    from patterntrader.backtest import outside_data
+
+    ext = outside_data(cfg)
+    if ext is not None:
+        try:
+            v, ev = ext.vix_context(day), ext.events_on(day)
+            if v["vix"] is not None:
+                notes.append(f"VIX {v['vix']:.1f} ({v['vix_ratio']:.2f}x its 20-day average)")
+            if ev:
+                notes.append("macro release today: " + ", ".join(ev))
+            rates = ext.rates_context(day)
+            if rates.get("hy_spread") is not None:
+                notes.append(f"credit spread {rates['hy_spread']:.2f}% ({rates['hy_spread_20d']:+.2f} in 20 days), "
+                             f"10-year yield {rates['t10y']:.2f}%")
+        except Exception as exc:
+            notes.append(f"VIX/calendar unavailable ({str(exc)[:60]})")
+        try:
+            halts = ext.halts_today()
+        except Exception as exc:
+            halts = {}
+            notes.append(f"halt feed unavailable ({str(exc)[:60]})")
+        try:
+            reddit = ext.attention().reddit_mentions()
+        except Exception as exc:
+            reddit = {}
+            notes.append(f"Reddit mentions unavailable ({str(exc)[:60]})")
     contexts = []
     for r in rows:
         sym = r["symbol"]
@@ -135,6 +161,12 @@ def analyze(cfg, md, rows: list[dict], now: datetime, strategies, edge) -> tuple
             shortable=r.get("shortable", False),
         )
         if ctx:
+            if ext is not None and abs(r["gap_pct"]) >= cfg.scan.min_abs_gap_pct:
+                add_outside_data(ctx, ext, cfg.scan.news_lookback_hours)
+            if ext is not None and sym in halts:
+                ctx.info["halted"] = halts[sym]
+            if ext is not None and sym in reddit:
+                ctx.info.update(reddit[sym])
             contexts.append(evaluate(ctx, strategies, cfg, edge))
     contexts.sort(key=lambda c: -c.score)
     return regime, notes, contexts

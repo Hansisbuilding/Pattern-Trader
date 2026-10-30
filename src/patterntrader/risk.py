@@ -10,8 +10,9 @@ from patterntrader.models import Signal
 
 
 class RiskManager:
-    def __init__(self, cfg, day_start_equity: float):
+    def __init__(self, cfg, day_start_equity: float, size_factor: float = 1.0):
         self.r = cfg.risk
+        self.size_factor = size_factor  # market-mood adjustment for today (1 = normal size)
         self.no_before = parse_time(cfg.session.no_entry_before)
         self.no_after = parse_time(cfg.session.no_entry_after)
         self.start_equity = day_start_equity
@@ -29,17 +30,39 @@ class RiskManager:
             self.halted = f"daily loss limit hit ({change_pct:.2f}%)"
             self.flatten_now = True
 
-    def size(self, sig: Signal, equity: float, buying_power: float | None = None) -> int:
+    def size(
+        self,
+        sig: Signal,
+        equity: float,
+        buying_power: float | None = None,
+        open_notional: float = 0.0,
+        avg_dollar_volume: float | None = None,
+        setup_factor: float = 1.0,
+    ) -> int:
+        """Shares such that hitting the stop loses risk_per_trade_pct of equity.
+
+        The risk rule sets the size. The caps only stop it in edge cases: one position
+        bigger than max_position_pct of equity, total exposure above max_gross_exposure_pct,
+        more than the broker's buying power, or more than a sliver of the stock's daily volume.
+        """
         rps = sig.risk_per_share
         if rps <= 0:
             return 0
-        qty = math.floor(equity * self.r.risk_per_trade_pct / 100 / rps)
-        qty = min(qty, math.floor(equity * self.r.max_position_pct / 100 / sig.entry))
+        qty = math.floor(equity * self.r.risk_per_trade_pct * self.size_factor * setup_factor / 100 / rps)
+        caps = [
+            equity * self.r.max_position_pct / 100,
+            equity * self.r.get("max_gross_exposure_pct", self.r.max_position_pct) / 100 - open_notional,
+        ]
         if buying_power is not None:
-            qty = min(qty, math.floor(buying_power * 0.95 / sig.entry))
+            caps.append(buying_power * 0.95)
+        if avg_dollar_volume:
+            caps.append(avg_dollar_volume * self.r.get("max_adv_pct", 1.0) / 100)
+        qty = min(qty, math.floor(max(min(caps), 0) / sig.entry))
         return max(qty, 0)
 
     def approve(self, sig: Signal, now: datetime) -> tuple[bool, str]:
+        if self.size_factor <= 0:
+            return False, "sitting out today (market sentiment)"
         if self.halted:
             return False, f"halted: {self.halted}"
         if not (self.no_before <= now.time() <= self.no_after):

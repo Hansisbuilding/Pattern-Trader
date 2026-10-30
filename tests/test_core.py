@@ -77,11 +77,20 @@ def test_market_chaos_on_big_gap(cfg):
 
 
 # -- risk ----------------------------------------------------------------------
-def test_sizing_risk_and_cap(cfg):
+def test_sizing_is_set_by_risk(cfg):
     rm = RiskManager(cfg, 100_000)
-    # 0.5% of 100k = $500 risk / $0.50 per share = 1000 shares, capped by 20% of equity / $50 = 400
-    assert rm.size(sig(), 100_000) == 400
-    assert rm.size(sig(entry=10, stop=9, target=12), 100_000) == 500  # 500 shares = $5k, under cap
+    # 0.5% of 100k = $500 risk / $0.50 per share = 1000 shares ($50k, under every cap)
+    assert rm.size(sig(), 100_000) == 1000
+    assert rm.size(sig(entry=10, stop=9, target=12), 100_000) == 500
+
+
+def test_sizing_caps(cfg):
+    rm = RiskManager(cfg, 100_000)
+    tight = sig(entry=100, stop=99.8, target=100.6)  # $0.20 stop wants 2500 shares = $250k
+    assert rm.size(tight, 100_000) == 1500  # one position capped at 150% of equity
+    assert rm.size(tight, 100_000, open_notional=200_000) == 500  # 250% gross exposure cap
+    assert rm.size(tight, 100_000, buying_power=50_000) == 475  # broker buying power
+    assert rm.size(tight, 100_000, avg_dollar_volume=5_000_000) == 500  # 1% of daily volume
 
 
 def test_risk_rules(cfg):
@@ -122,7 +131,10 @@ def test_chaos_market_blocks_everything(cfg):
 def test_trend_day_vs_range_day_playbooks(cfg):
     strategies = build_strategies(cfg)
     trend = evaluate(make_ctx(gap_pct=5.0), strategies, cfg)
-    assert {"orb", "gap_and_go", "vwap_pullback"} <= set(trend.eligible)
+    playbook = {"gap_and_go", "vwap_pullback", "bull_flag"}  # orb is off in config.yaml
+    assert playbook & set(trend.eligible) == {"vwap_pullback", "bull_flag"}  # trend patterns in a trending market
+    sideways = evaluate(make_ctx(gap_pct=5.0, market_regime="range"), strategies, cfg)
+    assert playbook & set(sideways.eligible) == {"gap_and_go"}  # news-driven gappers when the market goes nowhere
     assert "mean_reversion" not in trend.eligible  # never fade a trending stock
 
     quiet = evaluate(
@@ -131,6 +143,24 @@ def test_trend_day_vs_range_day_playbooks(cfg):
     )
     assert "mean_reversion" in quiet.eligible
     assert "vwap_pullback" not in quiet.eligible and "gap_and_go" not in quiet.eligible
+
+
+def test_momentum_needs_a_stock_in_play(cfg):
+    strategies = build_strategies(cfg)
+    momentum = {"gap_and_go", "orb", "vwap_pullback", "bull_flag"}
+    quiet = evaluate(make_ctx(gap_pct=0.5), strategies, cfg)
+    assert not momentum & set(quiet.eligible)
+    assert "not in play" in quiet.rejected["bull_flag"]
+    no_news = evaluate(make_ctx(gap_pct=3.0, has_catalyst=False), strategies, cfg)
+    assert not momentum & set(no_news.eligible)
+    downtrend = evaluate(make_ctx(gap_pct=3.0, stock_regime="trend_down"), strategies, cfg)
+    assert not momentum & set(downtrend.eligible)
+
+
+def test_target_r_lets_winners_run(cfg):
+    from patterntrader.strategies.momentum import GapAndGo
+
+    assert GapAndGo(cfg.strategies.gap_and_go, cfg).target_for(100, 99) == 110  # target_r: 10
 
 
 def test_no_longs_in_down_market_when_shorts_off(cfg):

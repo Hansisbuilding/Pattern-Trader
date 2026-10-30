@@ -30,6 +30,11 @@ class SetupContext:
     premarket_high: float | None = None
     premarket_low: float | None = None
     shortable: bool = False
+    filings: list[str] = field(default_factory=list)   # SEC filings before the open, e.g. ["earnings"]
+    vix: float | None = None                            # prior close
+    vix_ratio: float | None = None                      # vs its 20-day average (>1 = fear rising)
+    events: list[str] = field(default_factory=list)    # macro releases today: FOMC, CPI, jobs
+    info: dict = field(default_factory=dict)            # short interest, insiders, EPS surprise, rates
     eligible: list[str] = field(default_factory=list)
     rejected: dict[str, str] = field(default_factory=dict)
     score: float = 0.0

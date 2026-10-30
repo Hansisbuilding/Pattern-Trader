@@ -128,6 +128,15 @@ class Trader:
             self.cfg, self.md, rows, now_et(), list(self.strategies.values()), self.edge
         )
         self.journal.record("regime", note=f"{regime}: {'; '.join(notes)}")
+        from patterntrader.sentiment import day_size_factor, log_decisions
+
+        mood = watchlist.load(self.day).get("market_mood")
+        m = mood or {}
+        self.size_factor, why = day_size_factor(
+            m.get("mood"), (m.get("vix") or {}).get("vix_term"), m.get("events") or [], self.cfg)
+        log_decisions(self.day, "open", contexts, self.size_factor, why)
+        if why:
+            self.journal.record("sentiment", note="; ".join(why))
         active = []
         for c in contexts:
             if c.eligible:
@@ -153,12 +162,15 @@ class Trader:
         open_dt = datetime.combine(self.day, parse_time(cfg.session.open), ET)
         sleep_until(open_dt + timedelta(minutes=cfg.session.rvol_minutes, seconds=20))
         regime, active = self.confirm_at_open(picks)
-        if regime == "chaos" or not active:
+        if (regime == "chaos" and not cfg.regime.get("trade_chaos", False)) or not active:
             log.info("nothing to trade after the open check (market %s)", regime)
             return
 
         start_equity = float(self.broker.account().last_equity)
-        risk = RiskManager(cfg, start_equity)
+        risk = RiskManager(cfg, start_equity, getattr(self, "size_factor", 1.0))
+        if risk.size_factor <= 0:
+            log.info("sentiment says sit out today")
+            return
         flatten_at = datetime.combine(self.day, parse_time(cfg.session.flatten_at), ET)
         no_after = parse_time(cfg.session.no_entry_after)
 
@@ -207,10 +219,10 @@ class Trader:
                 if sig is None:
                     continue
                 self.fired.add((ctx.symbol, name))
-                if self.try_enter(sig, risk, now, equity, buying_power):
+                if self.try_enter(sig, ctx, risk, now, equity, buying_power):
                     break
 
-    def try_enter(self, sig: Signal, risk, now, equity, buying_power) -> bool:
+    def try_enter(self, sig: Signal, ctx, risk, now, equity, buying_power) -> bool:
         ok, why = risk.approve(sig, now)
         if not ok:
             self.journal.record("reject", sig=sig, note=why)
@@ -230,7 +242,11 @@ class Trader:
         if (live.entry - live.stop) * d <= 0 or (live.target - live.entry) * d <= 0 or live.reward_risk < strat.min_rr * 0.9:
             self.journal.record("reject", sig=live, note=f"price ran away (R:R now {live.reward_risk:.2f})")
             return False
-        qty = risk.size(live, equity, buying_power)
+        open_notional = sum(abs(float(p.market_value)) for p in self.broker.positions().values())
+        from patterntrader.sentiment import setup_size_factor
+
+        qty = risk.size(live, equity, buying_power, open_notional, ctx.avg_dollar_volume,
+                        setup_factor=setup_size_factor(ctx, self.cfg))
         if qty < 1:
             self.journal.record("reject", sig=live, note="position size rounds to 0")
             return False
