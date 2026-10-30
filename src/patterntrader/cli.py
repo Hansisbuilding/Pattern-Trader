@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 from datetime import date, datetime, timedelta
 
 from patterntrader import watchlist
@@ -136,6 +137,11 @@ def cmd_backtest(cfg, args):
 def cmd_trade(cfg, args):
     from patterntrader.live import Trader
 
+    if not args.dry_run and cfg.get("live", {}).get("github_only") and os.environ.get("GITHUB_ACTIONS") != "true":
+        raise SystemExit(
+            "This bot only places orders from GitHub Actions (live.github_only in config.yaml), "
+            "so it can't double-trade the account from this machine. Use --dry-run to watch signals here."
+        )
     stop_at = datetime.strptime(args.stop_at, "%H:%M").time() if args.stop_at else None
     Trader(cfg, dry_run=args.dry_run).run(stop_at=stop_at, resume=args.resume)
 

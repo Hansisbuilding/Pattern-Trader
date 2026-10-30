@@ -97,6 +97,9 @@ scan:
   min_score: 40                     # below this a setup isn't worth your attention
   news_lookback_hours: 18
 
+live:
+  github_only: true         # `trade` places orders only inside GitHub Actions; anywhere else only --dry-run works
+
 watchlist:
   require_approval: false   # 2026-10-30: auto-approve; the trader takes every watchlist pick that passes its rules
 

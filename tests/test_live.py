@@ -46,3 +46,17 @@ def test_handoff_round_trip(cfg, tmp_path, monkeypatch):
 
 def test_resume_without_state_is_none(cfg, tmp_path, monkeypatch):
     assert bare_trader(cfg, tmp_path, monkeypatch).load_state() is None
+
+
+def test_orders_only_from_github(cfg, monkeypatch):
+    import argparse
+
+    import pytest
+
+    from patterntrader import cli
+
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    cfg["live"] = {"github_only": True}
+    args = argparse.Namespace(dry_run=False, stop_at=None, resume=False)
+    with pytest.raises(SystemExit, match="only places orders from GitHub"):
+        cli.cmd_trade(cfg, args)
