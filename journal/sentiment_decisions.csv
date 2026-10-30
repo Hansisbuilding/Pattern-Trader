@@ -1,0 +1,11 @@
+day,stage,symbol,size_factor,action,catalyst_quality,quality_parts,news_tone,eps_surprise_pct,strategies_before,strategies_after
+2026-10-30,scan,*market*,1.0,normal size,,,,,,
+2026-10-30,scan,BTSG,1.0,kept,68.0,short interest (squeeze fuel) +10; heavy short selling +5; earnings report +3,,,gap_and_go,gap_and_go
+2026-10-30,scan,CDNA,1.0,kept,68.0,short interest (squeeze fuel) +10; heavy short selling +5; earnings report +3,,,gap_and_go,gap_and_go
+2026-10-30,scan,CPRI,1.0,kept,63.0,short interest (squeeze fuel) +10; earnings report +3,,,gap_and_go,gap_and_go
+2026-10-30,scan,MEOH,1.0,kept,50.0,,,,gap_and_go,gap_and_go
+2026-10-30,open,*market*,1.0,normal size,,,,,,
+2026-10-30,open,BTSG,1.0,kept,68.0,short interest (squeeze fuel) +10; heavy short selling +5; earnings report +3,,,gap_and_go,gap_and_go
+2026-10-30,open,CDNA,1.0,kept,68.0,short interest (squeeze fuel) +10; heavy short selling +5; earnings report +3,,,gap_and_go,gap_and_go
+2026-10-30,open,CPRI,1.0,kept,63.0,short interest (squeeze fuel) +10; earnings report +3,,,gap_and_go,gap_and_go
+2026-10-30,open,MEOH,1.0,kept,50.0,,,,gap_and_go,gap_and_go

@@ -1,1 +1,9 @@
 time,event,symbol,strategy,side,qty,price,stop,target,pnl,note
+2026-10-30T10:35:40-04:00,regime,,,,,,,,,"range: SPY range (ADX 14); VIX 17.2 (1.02x its 20-day average); credit spread 3.26% (+0.02 in 20 days), 10-year yield 5.05%"
+2026-10-30T10:35:40-04:00,confirm,BTSG,,,,,,,,"rvol 35.73020753266718, strategies ['gap_and_go']"
+2026-10-30T10:35:40-04:00,confirm,CDNA,,,,,,,,"rvol 21.50997726698661, strategies ['gap_and_go']"
+2026-10-30T10:35:40-04:00,confirm,CPRI,,,,,,,,"rvol 18.295106095915614, strategies ['gap_and_go']"
+2026-10-30T10:35:40-04:00,confirm,MEOH,,,,,,,,"rvol 1.706501547987616, strategies ['gap_and_go']"
+2026-10-30T12:00:04-04:00,handoff,,,,,,,,,open: none
+2026-10-30T12:00:40-04:00,resume,,,,,,,,,tracking nothing
+2026-10-30T15:50:08-04:00,close,,,,,,,,,"day done: realized +0.00, trades 0"
