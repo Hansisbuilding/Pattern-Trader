@@ -39,16 +39,15 @@ def coarse_select(rows: list[dict], cfg) -> list[dict]:
 
 
 def coarse_universe(cfg, md, trading, day: date) -> list[dict]:
-    from alpaca.trading.enums import AssetClass, AssetStatus
-    from alpaca.trading.requests import GetAssetsRequest
+    from types import SimpleNamespace
 
-    assets = trading.get_all_assets(
-        GetAssetsRequest(asset_class=AssetClass.US_EQUITY, status=AssetStatus.ACTIVE)
-    )
+    # Raw JSON, not alpaca-py's typed models: those reject any exchange the library doesn't know
+    # yet (TXSE, added 2026), which made the whole asset list fail to load.
+    raw = trading.get("/assets", {"status": "active", "asset_class": "us_equity"})
     exchanges = set(cfg.scan.exchanges)
     assets = {
-        a.symbol: a for a in assets
-        if a.tradable and getattr(a.exchange, "value", str(a.exchange)) in exchanges and a.symbol.isalpha()
+        a["symbol"]: SimpleNamespace(**a) for a in raw
+        if a.get("tradable") and a.get("exchange") in exchanges and a["symbol"].isalpha()
     }
     log.info("universe: %d tradable stocks", len(assets))
     snaps = md.snapshots(list(assets), cfg.data.live_feed)
