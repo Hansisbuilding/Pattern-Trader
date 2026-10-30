@@ -136,7 +136,8 @@ def cmd_backtest(cfg, args):
 def cmd_trade(cfg, args):
     from patterntrader.live import Trader
 
-    Trader(cfg, dry_run=args.dry_run).run()
+    stop_at = datetime.strptime(args.stop_at, "%H:%M").time() if args.stop_at else None
+    Trader(cfg, dry_run=args.dry_run).run(stop_at=stop_at, resume=args.resume)
 
 
 def cmd_account(cfg, args):
@@ -180,6 +181,8 @@ def main(argv=None):
 
     t = sub.add_parser("trade", help="trade approved symbols in the PAPER account until the close")
     t.add_argument("--dry-run", action="store_true", help="log signals without placing orders")
+    t.add_argument("--stop-at", help="HH:MM ET: hand off to a later --resume run instead of flattening")
+    t.add_argument("--resume", action="store_true", help="continue the day a --stop-at run handed off")
     sub.add_parser("account", help="show paper account status")
 
     args = p.parse_args(argv)

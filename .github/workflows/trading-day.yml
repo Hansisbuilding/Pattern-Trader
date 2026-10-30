@@ -1,0 +1,146 @@
+# Runs a full paper-trading day on GitHub, no Mac needed:
+#   morning job   ~08:15 ET  scan the market, trade from the open, hand off at 12:00 ET
+#   afternoon job  12:00 ET  pick up open positions, keep trading, flatten at 15:50 ET
+# GitHub caps a job at 6 hours, hence the hand-off. Bracket orders sit at Alpaca, so open
+# positions keep their stops and targets during the minute between jobs.
+#
+# Pause the bot: repo Settings > Secrets and variables > Actions > Variables > BOT_PAUSED = true
+# Results: the journal and watchlists are committed to the `trading-log` branch after each day.
+name: trading day
+
+on:
+  schedule:
+    # Cron runs in UTC. Two triggers cover summer (EDT) and winter (EST) time; the gate step
+    # keeps whichever lands in the 07:45-09:25 ET window. GitHub often starts these 5-30 min late.
+    - cron: "15 12 * * 1-5"
+    - cron: "15 13 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Log signals without placing orders"
+        type: boolean
+        default: true
+
+concurrency:
+  group: trading-day   # never two trading days at once; a queued duplicate exits at the gate
+  cancel-in-progress: false
+
+permissions:
+  contents: write      # to commit the day's journal to the trading-log branch
+
+env:
+  ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
+  ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
+  SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+  ALPHAVANTAGE_API_KEY: ${{ secrets.ALPHAVANTAGE_API_KEY }}
+  FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+  TRADE_FLAGS: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && '--dry-run' || '' }}
+  TZ: America/New_York
+
+jobs:
+  morning:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    outputs:
+      go: ${{ steps.gate.outputs.go }}
+    steps:
+      - id: gate
+        run: |
+          now=$(date +%H%M)
+          if [ "${{ vars.BOT_PAUSED }}" = "true" ]; then
+            echo "Bot is paused (BOT_PAUSED=true)." | tee -a "$GITHUB_STEP_SUMMARY"; echo "go=false" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ] || { [ "$now" -ge 0745 ] && [ "$now" -le 0925 ]; }; then
+            echo "go=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Outside the pre-market window ($now ET): the other trigger handles today." | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "go=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - if: steps.gate.outputs.go == 'true'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - if: steps.gate.outputs.go == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - if: steps.gate.outputs.go == 'true'
+        run: pip install -e .
+      - if: steps.gate.outputs.go == 'true'
+        uses: actions/cache@v4
+        with:
+          path: .cache
+          key: market-data-${{ github.run_id }}
+          restore-keys: market-data-
+
+      - name: Restore the running journal
+        if: steps.gate.outputs.go == 'true'
+        run: |
+          git checkout origin/trading-log -- journal watchlists 2>/dev/null || echo "first day, starting a new journal"
+
+      - name: Scan (after 08:50 ET so pre-market gaps are meaningful)
+        if: steps.gate.outputs.go == 'true'
+        run: |
+          while [ "$(date +%H%M)" -lt 0850 ] && [ "${{ github.event_name }}" != "workflow_dispatch" ]; do sleep 30; done
+          python -m patterntrader scan
+          cat watchlists/$(date +%F).md >> "$GITHUB_STEP_SUMMARY" || true
+
+      - name: Trade the morning
+        if: steps.gate.outputs.go == 'true'
+        run: python -m patterntrader trade --stop-at 12:00 $TRADE_FLAGS
+
+      - if: always() && steps.gate.outputs.go == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: day-state
+          path: |
+            journal/
+            watchlists/
+          include-hidden-files: true
+          retention-days: 7
+
+  afternoon:
+    needs: morning
+    if: always() && needs.morning.outputs.go == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -e .
+      - uses: actions/download-artifact@v4
+        with:
+          name: day-state
+          path: .
+        continue-on-error: true   # if the morning died early there is no state; the trader still flattens
+
+      - name: Trade the afternoon and flatten
+        run: python -m patterntrader trade --resume $TRADE_FLAGS
+
+      - name: Save the journal to the trading-log branch
+        if: always()
+        run: |
+          day=$(date +%F)
+          rm -f journal/state_*.pkl
+          git config user.name "pattern-trader bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git ls-remote --exit-code origin trading-log >/dev/null; then
+            git worktree add log origin/trading-log
+            git -C log switch -c trading-log
+          else
+            git worktree add --detach log
+            git -C log switch --orphan trading-log
+          fi
+          mkdir -p log/journal log/watchlists
+          cp -R journal/. log/journal/ 2>/dev/null || true
+          cp -R watchlists/. log/watchlists/ 2>/dev/null || true
+          git -C log add journal watchlists
+          git -C log commit -q -m "Trading day $day" || echo "nothing new to save"
+          git -C log push origin trading-log
+          tail -n 30 journal/trades.csv >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true

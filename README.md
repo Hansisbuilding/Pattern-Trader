@@ -102,11 +102,17 @@ Honest-testing tips:
 ## GitHub
 
 - `tests` workflow: runs the test suite on every push.
-- `premarket scan` workflow: runs the scanner on weekdays and posts the watchlist to the run's summary
-  page, so you can review it from your phone. Add `ALPACA_API_KEY` and `ALPACA_SECRET_KEY` as repo
-  secrets (Settings → Secrets and variables → Actions). Use the paper keys.
-- Run the **trader** on your own machine (or a small always-on server). A GitHub Actions job is capped
-  at 6 hours, which is shorter than the trading day.
+- `trading day` workflow: runs the whole paper-trading day on GitHub, no machine of your own needed.
+  The morning job scans at ~08:50 ET and trades from the open; at 12:00 ET it hands off to the
+  afternoon job (GitHub caps a job at 6 hours), which keeps trading and flattens at 15:50. Picks are
+  auto-approved (`watchlist.require_approval: false`). After the close the journal and watchlists are
+  committed to the `trading-log` branch.
+  - Secrets (Settings → Secrets and variables → Actions): `ALPACA_API_KEY`, `ALPACA_SECRET_KEY`
+    (paper keys), `SEC_USER_AGENT`, and optionally `ALPHAVANTAGE_API_KEY`, `FRED_API_KEY`.
+  - Pause: add the repository variable `BOT_PAUSED` = `true`.
+  - Manual run: Actions → trading day → Run workflow (dry run by default: logs signals, no orders).
+- Don't also run `patterntrader trade` on your own machine while the workflow is on: it would trade
+  the same account twice.
 
 `.env`, `.cache/`, `results/`, `journal/` and `watchlists/` are git-ignored. Keys never get committed.
 

@@ -98,7 +98,7 @@ scan:
   news_lookback_hours: 18
 
 watchlist:
-  require_approval: true    # trader only trades symbols you approved for the day
+  require_approval: false   # 2026-10-30: auto-approve; the trader takes every watchlist pick that passes its rules
 
 # --- Edge gate: a strategy must prove itself in backtests before it trades -----
 edge_gate:

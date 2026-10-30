@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import logging
+import pickle
 import time as systime
 from dataclasses import replace
 from datetime import datetime, time, timedelta
 
 from patterntrader import watchlist
-from patterntrader.config import ET, paper_credentials, parse_time
+from patterntrader.config import ET, ROOT, paper_credentials, parse_time
 from patterntrader.data import MarketData, regular_session
 from patterntrader.edge import EdgeGate
 from patterntrader.indicators import session_vwap
@@ -146,35 +147,74 @@ class Trader:
                 self.journal.record("drop", c.symbol, note="; ".join(f"{k}: {v}" for k, v in c.rejected.items()))
         return regime, active
 
+    # -- hand-off between runs (cloud jobs are capped at 6 hours) ---------------------
+    @property
+    def state_path(self):
+        return ROOT / "journal" / f"state_{self.day}.pkl"
+
+    def save_state(self, active, risk) -> None:
+        self.state_path.parent.mkdir(exist_ok=True)
+        self.state_path.write_bytes(pickle.dumps({
+            "active": active, "risk": risk, "tracked": self.tracked, "fired": self.fired,
+        }))
+
+    def load_state(self):
+        """Pick up a day another run started: same watchlist, open positions and risk counters."""
+        if not self.state_path.exists():
+            return None
+        st = pickle.loads(self.state_path.read_bytes())
+        self.tracked, self.fired = st["tracked"], st["fired"]
+        self.journal.record("resume", note=f"tracking {', '.join(self.tracked) or 'nothing'}")
+        return st["active"], st["risk"]
+
     # -- main loop -----------------------------------------------------------------
-    def run(self) -> None:
+    def run(self, stop_at: time | None = None, resume: bool = False) -> None:
+        """stop_at: hand off at this time (positions stay open, state is saved) instead of flattening.
+        resume: continue from the state a stopped run saved."""
         cfg = self.cfg
         clock = self.broker.client.get_clock()
         if not clock.is_open and clock.next_open.astimezone(ET).date() != self.day:
             log.info("market is closed today")
             return
-        picks = self.load_targets()
-        if not picks:
-            log.info("no approved symbols for %s: no trades today (approve with `patterntrader approve`)", self.day)
+        resumed = self.load_state() if resume else None
+        if resume and resumed is None:
+            if self.broker.positions():  # the earlier run died without handing off: still never hold overnight
+                log.warning("positions open but no saved state: holding until the flatten time, then closing all")
+                sleep_until(datetime.combine(self.day, parse_time(cfg.session.flatten_at), ET))
+                if not self.dry_run:
+                    self.broker.flatten()
+                self.journal.record("close", note="flattened positions left by an interrupted run")
+                return
+            log.info("no saved state for %s: the morning run traded nothing, so nothing to resume", self.day)
             return
-        log.info("approved: %s", ", ".join(c.symbol for c in picks))
+        if resumed:
+            active, risk = resumed
+        else:
+            picks = self.load_targets()
+            if not picks:
+                log.info("no approved symbols for %s: no trades today (approve with `patterntrader approve`)", self.day)
+                return
+            log.info("approved: %s", ", ".join(c.symbol for c in picks))
 
-        open_dt = datetime.combine(self.day, parse_time(cfg.session.open), ET)
-        sleep_until(open_dt + timedelta(minutes=cfg.session.rvol_minutes, seconds=20))
-        regime, active = self.confirm_at_open(picks)
-        if (regime == "chaos" and not cfg.regime.get("trade_chaos", False)) or not active:
-            log.info("nothing to trade after the open check (market %s)", regime)
-            return
+            open_dt = datetime.combine(self.day, parse_time(cfg.session.open), ET)
+            sleep_until(open_dt + timedelta(minutes=cfg.session.rvol_minutes, seconds=20))
+            regime, active = self.confirm_at_open(picks)
+            if (regime == "chaos" and not cfg.regime.get("trade_chaos", False)) or not active:
+                log.info("nothing to trade after the open check (market %s)", regime)
+                return
 
-        start_equity = float(self.broker.account().last_equity)
-        risk = RiskManager(cfg, start_equity, getattr(self, "size_factor", 1.0))
-        if risk.size_factor <= 0:
-            log.info("sentiment says sit out today")
-            return
+            start_equity = float(self.broker.account().last_equity)
+            risk = RiskManager(cfg, start_equity, getattr(self, "size_factor", 1.0))
+            if risk.size_factor <= 0:
+                log.info("sentiment says sit out today")
+                return
         flatten_at = datetime.combine(self.day, parse_time(cfg.session.flatten_at), ET)
         no_after = parse_time(cfg.session.no_entry_after)
+        handoff = datetime.combine(self.day, stop_at, ET) if stop_at else None
+        if handoff and handoff >= flatten_at:
+            handoff = None
 
-        while now_et() < flatten_at:
+        while now_et() < (handoff or flatten_at):
             minute = now_et().replace(second=0, microsecond=0)
             sleep_until(minute + timedelta(minutes=1, seconds=3))
             now = now_et()
@@ -191,6 +231,10 @@ class Trader:
             except Exception:  # keep the loop alive; brackets protect open positions
                 log.exception("loop error")
 
+        if handoff and not risk.flatten_now and now_et() < flatten_at:
+            self.save_state(active, risk)  # brackets keep protecting open positions until the next run
+            self.journal.record("handoff", note=f"open: {', '.join(self.broker.positions()) or 'none'}")
+            return
         if not self.dry_run:
             self.broker.flatten()
             systime.sleep(5)
