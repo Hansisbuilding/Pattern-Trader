@@ -117,6 +117,28 @@ Honest-testing tips:
 
 `.env`, `.cache/`, `results/`, `journal/` and `watchlists/` are git-ignored. Keys never get committed.
 
+## The reviewer
+
+After each trading day a Claude agent reviews the bot's live results: daily, plus a weekly,
+monthly, quarterly and yearly review on the last trading day of each. It writes a plain-English
+report (what's working, what isn't), keeps a notebook of lessons it rewrites each time, and may
+adjust the settings listed under `reviewer.knobs` in `config.yaml`:
+
+- only those settings, only inside their min/max, one step per change;
+- a few changes per review at most (`max_changes`), and a changed setting stays put for
+  `cooldown_days` weekdays before it can move again (undoing is always allowed);
+- if the portfolio falls `undo_all_drawdown_pct` after its adjustments begin, code undoes them all.
+
+Code checks every proposed change; refused ones are logged with the reason so the reviewer
+learns the limits. Paper-only keys, GitHub-only orders, the 15:50 flatten, shorts, sentiment and
+the edge gate are out of its reach. Its files live in `reviewer/` on the `trading-log` branch:
+`overrides.yaml` (adjustments in effect), `changes.csv`, `lessons.md` and `reports/`. Delete
+`overrides.yaml` there to put everything back to `config.yaml`. Backtests ignore the adjustments.
+
+It runs on your Claude plan: run `claude setup-token` in Terminal, then
+`scripts/set-github-secrets.sh CLAUDE_CODE_OAUTH_TOKEN` and paste the token. Try a review on your
+Mac without saving anything: `patterntrader review --period daily --dry-run`.
+
 ## Known limitations
 
 - The free Alpaca plan gives real-time data from **IEX only**, about 2–3% of volume. Live RVOL compares IEX

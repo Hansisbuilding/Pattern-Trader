@@ -146,6 +146,20 @@ def cmd_trade(cfg, args):
     Trader(cfg, dry_run=args.dry_run).run(stop_at=stop_at, resume=args.resume)
 
 
+def cmd_review(cfg, args):
+    from patterntrader.review import agent
+
+    try:
+        equity = float(_clients(cfg)[1].account().equity)
+    except Exception as exc:  # noqa: BLE001 - the review can still run on the journal alone
+        logging.warning("account unavailable (%s); using equity_if_offline", exc)
+        equity = float(cfg.reviewer.equity_if_offline)
+    day = date.fromisoformat(args.day) if args.day else datetime.now(ET).date()
+    periods = [args.period] if args.period else None
+    for path in agent.run(cfg, day, equity, periods=periods, dry_run=args.dry_run):
+        print(path.read_text())
+
+
 def cmd_account(cfg, args):
     _, broker = _clients(cfg)
     a = broker.account()
@@ -190,6 +204,11 @@ def main(argv=None):
     t.add_argument("--stop-at", help="HH:MM ET: hand off to a later --resume run instead of flattening")
     t.add_argument("--resume", action="store_true", help="continue the day a --stop-at run handed off")
     sub.add_parser("account", help="show paper account status")
+    r = sub.add_parser("review", help="the reviewer: Claude reads live results and adjusts settings within limits")
+    r.add_argument("--day", help="default: today")
+    r.add_argument("--period", choices=["daily", "weekly", "monthly", "quarterly", "yearly"],
+                   help="run just this review (default: every review due today)")
+    r.add_argument("--dry-run", action="store_true", help="show the review and proposed changes; save nothing")
 
     args = p.parse_args(argv)
     logging.basicConfig(
@@ -197,6 +216,10 @@ def main(argv=None):
         format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
     )
     cfg = load_config(args.config)
+    if args.cmd in ("scan", "trade"):
+        from patterntrader.review.knobs import apply_overrides
+
+        cfg = apply_overrides(cfg)  # the reviewer's adjustments; backtests keep config.yaml as written
     handlers = {
         "scan": cmd_scan,
         "mood": cmd_mood,
@@ -206,5 +229,6 @@ def main(argv=None):
         "backtest": cmd_backtest,
         "trade": cmd_trade,
         "account": cmd_account,
+        "review": cmd_review,
     }
     handlers[args.cmd](cfg, args)

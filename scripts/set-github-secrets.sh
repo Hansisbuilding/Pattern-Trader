@@ -3,6 +3,8 @@
 # Prompts for each one in turn (input hidden). Press Enter to reuse the value already in .env,
 # or type "-" to skip that secret. Values go straight from this terminal to GitHub; they are
 # never printed or written anywhere else.
+#   scripts/set-github-secrets.sh                          asks for every secret
+#   scripts/set-github-secrets.sh CLAUDE_CODE_OAUTH_TOKEN  asks for just the ones named
 cd "$(dirname "$0")/.." || exit 1
 GH="${GH:-$(command -v gh || echo "$HOME/.local/bin/gh")}"
 REPO="Hansisbuilding/Pattern-Trader"
@@ -18,6 +20,7 @@ from_env() {  # value of NAME in .env, without surrounding quotes
 }
 
 ask() {  # ask NAME "description"
+  if [ -n "$ONLY" ]; then case " $ONLY " in *" $1 "*) ;; *) return ;; esac; fi
   current=$(from_env "$1")
   if [ -n "$current" ]; then hint="Enter = use the one in .env, - = skip"; else hint="- = skip"; fi
   printf "%s (%s)\n  [%s]: " "$1" "$2" "$hint"
@@ -31,12 +34,14 @@ ask() {  # ask NAME "description"
   printf %s "$value" | "$GH" secret set "$1" --repo "$REPO" >/dev/null && echo "  saved to GitHub"
 }
 
+ONLY="$*"
 echo "Setting secrets for $REPO"
 ask ALPACA_API_KEY "Alpaca PAPER API key, starts with PK"
 ask ALPACA_SECRET_KEY "Alpaca paper secret key"
 ask SEC_USER_AGENT "name and email for sec.gov, e.g. PatternTrader you@example.com"
 ask ALPHAVANTAGE_API_KEY "optional, earnings surprises"
 ask FRED_API_KEY "optional, Treasury yields and credit spreads"
+ask CLAUDE_CODE_OAUTH_TOKEN "for the reviewer: paste the token printed by 'claude setup-token'"
 echo
 echo "Secrets now on GitHub (names only):"
 "$GH" secret list --repo "$REPO"
