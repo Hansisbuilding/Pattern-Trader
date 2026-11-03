@@ -24,7 +24,15 @@ ask() {  # ask NAME "description"
   current=$(from_env "$1")
   if [ -n "$current" ]; then hint="Enter = use the one in .env, - = skip"; else hint="- = skip"; fi
   printf "%s (%s)\n  [%s]: " "$1" "$2" "$hint"
-  stty -echo; read -r value; stty echo; echo
+  stty -echo
+  if [ "$1" = CLAUDE_CODE_OAUTH_TOKEN ]; then
+    # Claude prints this token across two or more lines, so a paste arrives as several lines:
+    # read them all until an empty line (the extra Enter).
+    value=""; while read -r line && [ -n "$line" ]; do value="$value$line"; done
+  else
+    read -r value
+  fi
+  stty echo; echo
   [ "$value" = "-" ] && { echo "  skipped"; return; }
   [ -z "$value" ] && value="$current"
   if [ -z "$value" ]; then echo "  skipped (nothing entered)"; return; fi
@@ -48,7 +56,7 @@ ask ALPACA_SECRET_KEY "Alpaca paper secret key"
 ask SEC_USER_AGENT "name and email for sec.gov, e.g. PatternTrader you@example.com"
 ask ALPHAVANTAGE_API_KEY "optional, earnings surprises"
 ask FRED_API_KEY "optional, Treasury yields and credit spreads"
-ask CLAUDE_CODE_OAUTH_TOKEN "for the reviewer: paste the token printed by 'claude setup-token'"
+ask CLAUDE_CODE_OAUTH_TOKEN "for the reviewer: paste ALL the lines of the token from 'claude setup-token', then press Enter twice"
 echo
 echo "Secrets now on GitHub (names only):"
 "$GH" secret list --repo "$REPO"
