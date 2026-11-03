@@ -30,6 +30,13 @@ ask() {  # ask NAME "description"
   if [ -z "$value" ]; then echo "  skipped (nothing entered)"; return; fi
   case "$1" in
     ALPACA_API_KEY) case "$value" in PK*) ;; *) echo "  refused: paper keys start with PK"; return ;; esac ;;
+    CLAUDE_CODE_OAUTH_TOKEN)
+      value=$(printf %s "$value" | tr -d '[:space:]')   # a token copied across wrapped lines
+      case "$value" in sk-ant-oat*) ;; *) echo "  refused: the token starts with sk-ant-oat"; return ;; esac
+      echo "  checking the token with Claude..."
+      reply=$(cd /tmp && CLAUDE_CODE_OAUTH_TOKEN="$value" claude -p "Reply with just OK" --max-turns 1 \
+        --setting-sources "" --strict-mcp-config --tools "" --no-session-persistence 2>&1)
+      case "$reply" in *OK*) echo "  token works" ;; *) echo "  refused: Claude rejected this token: $reply"; return ;; esac ;;
   esac
   printf %s "$value" | "$GH" secret set "$1" --repo "$REPO" >/dev/null && echo "  saved to GitHub"
 }

@@ -183,6 +183,7 @@ jobs:
             git checkout origin/trading-log -- "$p" 2>/dev/null || echo "no $p yet"
           done
           git reset -q   # keep the restored files out of git's staging area
+          set -o pipefail   # a failed review must fail the step, not hide behind `tee`
           python -m patterntrader review $TRADE_FLAGS | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Save the reviewer's files to the trading-log branch
