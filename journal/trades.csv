@@ -14,3 +14,12 @@ time,event,symbol,strategy,side,qty,price,stop,target,pnl,note
 2026-11-02T11:30:03-05:00,handoff,,,,,,,,,open: none
 2026-11-02T11:30:37-05:00,resume,,,,,,,,,tracking nothing
 2026-11-02T15:50:08-05:00,close,,,,,,,,,"day done: realized +0.00, trades 0"
+2026-11-03T09:35:31-05:00,regime,,,,,,,,,"range: SPY range (ADX 16); VIX 21.1 (1.22x its 20-day average); credit spread 3.44% (+0.34 in 20 days), 10-year yield 4.94%"
+2026-11-03T09:35:31-05:00,confirm,FISV,,,,,,,,"rvol 11.199761088204694, strategies ['gap_and_go']"
+2026-11-03T09:35:31-05:00,confirm,RVTY,,,,,,,,"rvol 5.340737450022212, strategies ['gap_and_go']"
+2026-11-03T09:35:31-05:00,drop,MSTR,,,,,,,,gap_and_go: not in play: gap +0.3% (needs 1.5% with news); vwap_pullback: market is range; bull_flag: market is range
+2026-11-03T09:35:31-05:00,drop,XPEV,,,,,,,,gap_and_go: gap +2.0% < 2.0%; vwap_pullback: market is range; bull_flag: market is range
+2026-11-03T09:37:03-05:00,reject,RVTY,gap_and_go,long,,170.64,167.02,206.84,,spread 6.46% too wide
+2026-11-03T11:30:03-05:00,handoff,,,,,,,,,open: none
+2026-11-03T11:30:36-05:00,resume,,,,,,,,,tracking nothing
+2026-11-03T15:50:08-05:00,close,,,,,,,,,"day done: realized +0.00, trades 0"

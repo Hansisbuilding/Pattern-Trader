@@ -15,3 +15,11 @@ day,stage,symbol,size_factor,action,catalyst_quality,quality_parts,news_tone,eps
 2026-11-02,scan,PLTR,1.0,kept,55.0,heavy short selling +5,,,gap_and_go,gap_and_go
 2026-11-02,open,*market*,1.0,normal size,,,,,,
 2026-11-02,open,MHK,1.0,kept,65.0,short interest (squeeze fuel) +10; heavy short selling +5,,,gap_and_go,gap_and_go
+2026-11-03,scan,*market*,1.0,normal size,,,,,,
+2026-11-03,scan,FISV,1.0,kept,63.0,short interest (squeeze fuel) +10; earnings report +3,,,gap_and_go,gap_and_go
+2026-11-03,scan,MSTR,1.0,kept,50.0,,,,gap_and_go,gap_and_go
+2026-11-03,scan,RVTY,1.0,kept,63.0,short interest (squeeze fuel) +10; earnings report +3,,,gap_and_go,gap_and_go
+2026-11-03,scan,XPEV,1.0,kept,50.0,,,,gap_and_go,gap_and_go
+2026-11-03,open,*market*,1.0,normal size,,,,,,
+2026-11-03,open,FISV,1.0,kept,63.0,short interest (squeeze fuel) +10; earnings report +3,,,gap_and_go,gap_and_go
+2026-11-03,open,RVTY,1.0,kept,63.0,short interest (squeeze fuel) +10; earnings report +3,,,gap_and_go,gap_and_go
