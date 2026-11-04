@@ -31,7 +31,7 @@ risk:
   no_reentry_after_loss: true  # no revenge trading a symbol that just stopped you out
   min_reward_risk: 2.0         # default; strategies may override (never below 1.0)
   min_stop_pct: 0.5            # stops tighter than this % of price are noise (2016-21: they lost)
-  max_spread_pct: 0.15         # skip entries if bid/ask spread is wider than this
+  max_spread_pct: 0.15         # entry limit price: at most this far above the signal price (the worst fill we take)
   allow_short: false           # start long-only; flip once shorts prove out in backtests
   long_in_down_market: false   # research only: allow buying when SPY is in a downtrend
 
@@ -90,7 +90,10 @@ scan:
   include_top_liquid: 40            # also analyze the most liquid non-gappers (trend/range plays)
   min_price: 5
   max_price: 500
-  min_avg_dollar_volume: 20000000   # $20M/day; illiquid names = bad fills
+  # 2026-11-04: raised from $20M to $200M so live picks look like the names the 10-year backtest
+  # was run on (84 very liquid stocks, median $1.35B/day, none under $200M). Below that, spreads
+  # run 0.3-0.7% at the open and the pattern was never tested.
+  min_avg_dollar_volume: 200000000
   min_abs_gap_pct: 1.5              # coarse filter for the full-market scan
   coarse_limit: 80                  # names that get the full analysis
   max_watchlist: 5                  # focus beats breadth
@@ -99,6 +102,7 @@ scan:
 
 live:
   github_only: true         # `trade` places orders only inside GitHub Actions; anywhere else only --dry-run works
+  entry_timeout_minutes: 2  # an entry limit order not filled by then is cancelled (no chasing a runaway price)
 
 watchlist:
   require_approval: false   # 2026-10-30: auto-approve; the trader takes every watchlist pick that passes its rules
@@ -130,6 +134,7 @@ reviewer:
     risk.max_spread_pct: {min: 0.05, max: 0.3, step: 0.05}
     in_play.min_gap_pct: {min: 1.0, max: 5.0, step: 0.5}
     scan.max_watchlist: {min: 2, max: 8, step: 1}
+    scan.min_avg_dollar_volume: {min: 100000000, max: 1000000000, step: 100000000}
     scan.min_score: {min: 30, max: 70, step: 5}
     strategies.*.enabled: {bool: true}
     strategies.*.market_regimes: {subset_of: [trend_up, range, mixed]}   # never downtrend or chaos

@@ -58,7 +58,7 @@ that far away means bad trade location), and it must meet its minimum reward:ris
 - Daily loss of 2% means flatten everything and stop for the day.
 - Two losses in a row means no new trades for the day.
 - Max 4 trades per day and 2 open at once. No re-entering a symbol that just stopped you out.
-- No entries before 09:35 or after 15:00. Skip if the spread is wide or price has run away from the signal.
+- No entries before 09:35 or after 15:00. Entries are limit orders capped 0.15% above the signal price (the free data plan has no reliable real-time quotes, so a spread check would use bad data); an entry not filled within 2 minutes is cancelled.
 - Long-only by default (`allow_short: false`).
 
 **4. Edge gate.** A strategy only trades live after a backtest shows ≥ 30 trades, positive expectancy,

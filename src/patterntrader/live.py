@@ -48,16 +48,18 @@ class PaperBroker:
     def positions(self) -> dict:
         return {p.symbol: p for p in self.client.get_all_positions()}
 
-    def submit_bracket(self, sig: Signal, qty: int, day) -> str:
+    def submit_bracket(self, sig: Signal, qty: int, day, limit_price: float) -> str:
+        """Entry as a limit order at `limit_price` (the worst fill we accept), with stop and target legs."""
         from alpaca.trading.enums import OrderClass, OrderSide, TimeInForce
-        from alpaca.trading.requests import MarketOrderRequest, StopLossRequest, TakeProfitRequest
+        from alpaca.trading.requests import LimitOrderRequest, StopLossRequest, TakeProfitRequest
 
         order = self.client.submit_order(
-            MarketOrderRequest(
+            LimitOrderRequest(
                 symbol=sig.symbol,
                 qty=qty,
                 side=OrderSide.BUY if sig.side == "long" else OrderSide.SELL,
                 time_in_force=TimeInForce.DAY,
+                limit_price=round(limit_price, 2),
                 order_class=OrderClass.BRACKET,
                 take_profit=TakeProfitRequest(limit_price=round(sig.target, 2)),
                 stop_loss=StopLossRequest(stop_price=round(sig.stop, 2)),
@@ -65,6 +67,9 @@ class PaperBroker:
             )
         )
         return str(order.id)
+
+    def cancel(self, order_id: str) -> None:
+        self.client.cancel_order_by_id(order_id)
 
     def order(self, order_id: str):
         from alpaca.trading.requests import GetOrderByIdRequest
@@ -266,25 +271,27 @@ class Trader:
                 if self.try_enter(sig, ctx, risk, now, equity, buying_power):
                     break
 
+    def entry_limit(self, sig: Signal) -> float:
+        """The worst fill we accept: the signal price plus max_spread_pct in the trade's direction.
+
+        The free data plan's only real-time quotes come from IEX, whose bid/ask runs 3-100x wider
+        than the real market (RVTY 2026-11-03: IEX 6.5-12.8%, real 0.65%), so a quote-based spread
+        check threw away nearly every signal. A capped limit order protects against a bad fill
+        without needing a quote, and matches the backtest's "next bar's open" fill.
+        """
+        return round(sig.entry * (1 + sig.direction * self.cfg.risk.max_spread_pct / 100), 2)
+
     def try_enter(self, sig: Signal, ctx, risk, now, equity, buying_power) -> bool:
         ok, why = risk.approve(sig, now)
         if not ok:
             self.journal.record("reject", sig=sig, note=why)
             return False
-        quote = self.md.latest_quote(sig.symbol, self.cfg.data.live_feed)
-        bid, ask = float(quote.bid_price or 0), float(quote.ask_price or 0)
-        if bid <= 0 or ask <= 0:
-            self.journal.record("reject", sig=sig, note="no valid quote")
-            return False
-        spread_pct = (ask - bid) / ((ask + bid) / 2) * 100
-        if spread_pct > self.cfg.risk.max_spread_pct:
-            self.journal.record("reject", sig=sig, note=f"spread {spread_pct:.2f}% too wide")
-            return False
-        live = replace(sig, entry=ask if sig.side == "long" else bid)
+        limit = self.entry_limit(sig)
+        live = replace(sig, entry=limit)  # size and judge the trade at the worst fill we allow
         strat = self.strategies[sig.strategy]
         d = live.direction
         if (live.entry - live.stop) * d <= 0 or (live.target - live.entry) * d <= 0 or live.reward_risk < strat.min_rr * 0.9:
-            self.journal.record("reject", sig=live, note=f"price ran away (R:R now {live.reward_risk:.2f})")
+            self.journal.record("reject", sig=live, note=f"R:R too thin at the limit price ({live.reward_risk:.2f})")
             return False
         open_notional = sum(abs(float(p.market_value)) for p in self.broker.positions().values())
         from patterntrader.sentiment import setup_size_factor
@@ -297,10 +304,10 @@ class Trader:
         if self.dry_run:
             self.journal.record("dry_signal", sig=live, qty=qty)
             return True
-        order_id = self.broker.submit_bracket(live, qty, self.day)
+        order_id = self.broker.submit_bracket(live, qty, self.day, limit)
         risk.on_entry(live)
-        self.tracked[live.symbol] = {"order_id": order_id, "sig": live, "qty": qty}
-        self.journal.record("entry", sig=live, qty=qty, note=f"{live.reason} (order {order_id})")
+        self.tracked[live.symbol] = {"order_id": order_id, "sig": live, "qty": qty, "placed": now}
+        self.journal.record("entry", sig=live, qty=qty, note=f"{live.reason} (limit {limit}, order {order_id})")
         return True
 
     def sync(self, risk) -> None:
@@ -308,6 +315,7 @@ class Trader:
         if not self.tracked:
             return
         positions = self.broker.positions()
+        timeout = timedelta(minutes=self.cfg.get("live", {}).get("entry_timeout_minutes", 2))
         for sym, tr in list(self.tracked.items()):
             order = self.broker.order(tr["order_id"])
             filled = float(order.filled_qty or 0)
@@ -316,6 +324,11 @@ class Trader:
                 risk.on_cancel(sym)
                 self.journal.record("cancel", sym, sig=tr["sig"], note=f"entry {status}")
                 del self.tracked[sym]
+            elif filled == 0 and tr.get("placed") and now_et() - tr["placed"] > timeout:
+                # the price ran past our limit: a late chase is a different, untested trade
+                log.info("%s: entry not filled within %s, cancelling", sym, timeout)
+                self.broker.cancel(tr["order_id"])
+                tr["placed"] = None  # the next sync records the cancel
             elif filled > 0 and sym not in positions:
                 entry = float(order.filled_avg_price)
                 exit_px = self.broker.last_exit_price(sym, tr["sig"].side)

@@ -1,6 +1,6 @@
 """Morning-to-afternoon hand-off: the resumed run must see the same positions and risk counters."""
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from conftest import DAY, make_ctx
 
@@ -60,3 +60,57 @@ def test_orders_only_from_github(cfg, monkeypatch):
     args = argparse.Namespace(dry_run=False, stop_at=None, resume=False)
     with pytest.raises(SystemExit, match="only places orders from GitHub"):
         cli.cmd_trade(cfg, args)
+
+
+# -- entries: capped limit orders instead of an IEX spread check ---------------------------
+class FakeBroker:
+    def __init__(self):
+        self.orders, self.cancelled = [], []
+
+    def submit_bracket(self, sig, qty, day, limit_price):
+        self.orders.append((sig.symbol, qty, limit_price, sig.stop, sig.target))
+        return f"o{len(self.orders)}"
+
+    def positions(self):
+        return {}
+
+    def cancel(self, order_id):
+        self.cancelled.append(order_id)
+
+    def order(self, order_id):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(filled_qty=0, status="accepted")
+
+
+def trader_with_broker(cfg, tmp_path, monkeypatch):
+    from patterntrader.strategies import build_strategies
+
+    t = bare_trader(cfg, tmp_path, monkeypatch)
+    t.broker, t.dry_run = FakeBroker(), False
+    t.strategies = {s.name: s for s in build_strategies(cfg)}
+    return t
+
+
+def test_entry_is_a_limit_capped_at_max_spread(cfg, tmp_path, monkeypatch):
+    t = trader_with_broker(cfg, tmp_path, monkeypatch)
+    sig = Signal("gap_and_go", "TEST", "long", 100.0, 98.5, 115.0, datetime(2026, 3, 2, 9, 40, tzinfo=ET), "test")
+    assert t.entry_limit(sig) == 100.15  # max_spread_pct 0.15 above the signal price
+    risk = RiskManager(cfg, 1_000_000)
+    assert t.try_enter(sig, make_ctx(), risk, sig.time, 1_000_000, 4_000_000)
+    sym, qty, limit, stop, target = t.broker.orders[0]
+    assert (sym, limit, stop, target) == ("TEST", 100.15, 98.5, 115.0)
+    assert qty == 3030  # 0.5% of $1M = $5,000 risk / $1.65 per share at the limit price
+    assert t.journal.rows == ["entry"] and t.tracked["TEST"]["placed"] == sig.time
+
+
+def test_unfilled_entry_is_cancelled_after_timeout(cfg, tmp_path, monkeypatch):
+    t = trader_with_broker(cfg, tmp_path, monkeypatch)
+    sig = Signal("gap_and_go", "TEST", "long", 100.0, 98.5, 115.0, datetime(2026, 3, 2, 9, 40, tzinfo=ET), "test")
+    risk = RiskManager(cfg, 1_000_000)
+    t.tracked = {"TEST": {"order_id": "o1", "sig": sig, "qty": 10, "placed": live.now_et() - timedelta(minutes=1)}}
+    t.sync(risk)
+    assert t.broker.cancelled == []  # 1 minute: still waiting
+    t.tracked["TEST"]["placed"] = live.now_et() - timedelta(minutes=3)
+    t.sync(risk)
+    assert t.broker.cancelled == ["o1"]
