@@ -23,3 +23,13 @@ time,event,symbol,strategy,side,qty,price,stop,target,pnl,note
 2026-11-03T11:30:03-05:00,handoff,,,,,,,,,open: none
 2026-11-03T11:30:36-05:00,resume,,,,,,,,,tracking nothing
 2026-11-03T15:50:08-05:00,close,,,,,,,,,"day done: realized +0.00, trades 0"
+2026-11-04T09:35:33-05:00,regime,,,,,,,,,"range: SPY range (ADX 17); VIX 20.8 (1.19x its 20-day average); credit spread 3.43% (+0.31 in 20 days), 10-year yield 4.91%"
+2026-11-04T09:35:33-05:00,confirm,BKNG,,,,,,,,"rvol 4.207414343182133, strategies ['gap_and_go']"
+2026-11-04T09:35:33-05:00,confirm,AMZN,,,,,,,,"rvol 4.805956127459314, strategies ['gap_and_go']"
+2026-11-04T09:35:33-05:00,confirm,NVO,,,,,,,,"rvol 2.1645097314195434, strategies ['gap_and_go']"
+2026-11-04T09:35:33-05:00,confirm,AAPL,,,,,,,,"rvol 1.4330188587679198, strategies ['gap_and_go']"
+2026-11-04T09:35:33-05:00,drop,QCOM,,,,,,,,gap_and_go: not in play: gap +1.3% (needs 1.5% with news); vwap_pullback: market is range; bull_flag: market is range
+2026-11-04T10:01:04-05:00,reject,AAPL,gap_and_go,long,,352.4,350.88,367.6,,stop 1.52 tighter than noise (1.76)
+2026-11-04T11:30:04-05:00,handoff,,,,,,,,,open: none
+2026-11-04T11:30:39-05:00,resume,,,,,,,,,tracking nothing
+2026-11-04T15:50:08-05:00,close,,,,,,,,,"day done: realized +0.00, trades 0"
